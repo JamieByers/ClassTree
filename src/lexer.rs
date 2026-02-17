@@ -1,6 +1,6 @@
 use core::panic;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Token {
     ObjectDeclaration,
     Identifier(String),
@@ -38,10 +38,14 @@ impl Lexer {
     }
 
     pub fn advance(&mut self) -> char {
-        println!("Current token at advance \"{}\", '{}', {}, {}", self.current_char, self.current_line, self.pos, self.current_line.len());
+        // println!("Current token at advance \"{}\", '{}', {}, {}", self.current_char, self.current_line, self.pos, self.current_line.len());
         if self.pos <= self.current_line.len() {
             self.pos += 1;
-            self.current_char = self.current_line.chars().nth(self.pos).unwrap_or('\0');
+            self.current_char = self.current_line[self.pos..]
+                .chars()
+                .next()
+                .unwrap_or('\0');
+
             self.current_char
         } else {
             '\0'
@@ -49,19 +53,25 @@ impl Lexer {
 
     }
 
-    pub fn lex(&mut self) {
+    pub fn lex(&mut self) -> Vec<(i64, Vec<Token>, String)>  {
+        let mut tokenised_lines: Vec<(i64, Vec<Token>, String)> = Vec::new();
+
         for line in self.lines.clone() {
             self.current_line = line.1;
             self.pos = 0;
             self.current_char = self.current_line.chars().nth(self.pos).unwrap_or('\0');
 
             let line_tokens = self.handle_line();
-            println!("{:?}", line_tokens);
+            // println!("line tokens: {:?}, {}", line_tokens, self.current_line);
+
+            tokenised_lines.push((line.0, line_tokens, line.2));
         }
+
+        return tokenised_lines
+
     }
 
     pub fn handle_line(&mut self) -> Vec<Token> {
-        println!("line going into handle line {}", self.current_line);
         let mut tokens = Vec::new();
         while self.current_char != '\0' {
             let token = self.next_token();
@@ -78,7 +88,6 @@ impl Lexer {
         }
 
 
-        println!("Current char at next token {}", self.current_char);
         let token = match self.current_char {
             'a'..='z' | 'A'..='Z' => {
                 let identifier = self.handle_indentifier();
@@ -125,7 +134,7 @@ impl Lexer {
 
     fn handle_indentifier(&mut self) -> String{
         let mut identifier: String = String::new();
-        while !self.current_char.is_whitespace() && self.current_char.is_alphabetic() {
+        while !self.current_char.is_whitespace() && (self.current_char.is_alphabetic() || self.current_char == '_') {
             identifier.push(self.current_char);
             self.advance();
         }
@@ -198,10 +207,13 @@ impl Lexer {
     }
 
     fn handle_braces(&mut self) -> Token {
-        match self.current_char {
+        let b = match self.current_char {
             '{' => Token::BlockOpen('{'),
             '}' => Token::BlockClose,
             _ => panic!("Not braces")
-        }
+        };
+
+        self.advance();
+        return b
     }
 }

@@ -1,8 +1,10 @@
 use std::{io::{self, Read}};
 use crate::lexer::Lexer;
+use crate::parser::Parser;
 use serde_json;
 
 pub mod lexer;
+pub mod parser;
 
 fn main() {
     let mut buffer = String::new();
@@ -15,11 +17,15 @@ fn main() {
     //     println!("{}", line.1);
     // }
 
-    let possible_objects = find_possible_objects(all_lines);
+    // let possible_objects = find_possible_objects(all_lines);
 
-    let mut lexer = Lexer::new(possible_objects);
+    let mut lexer = Lexer::new(all_lines);
 
-    lexer.lex();
+    let tkls = lexer.lex();
+
+    let mut parser = Parser::new(tkls);
+
+    let _possible_objects = parser.possible_objects();
 
 }
 
