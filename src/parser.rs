@@ -1,24 +1,22 @@
-use crate::lexer::Token;
+use crate::structs::{Token, TokenisedFileData};
 
 pub struct Parser {
-   lines: Vec<(i64, Vec<Token>, String)>,
+   files: Vec<TokenisedFileData>,
 }
 
 impl Parser {
-    pub fn new(lines: Vec<(i64, Vec<Token>, String)>) -> Self {
+    pub fn new(files: Vec<TokenisedFileData>) -> Parser {
         Parser {
-            lines
+            files
         }
     }
 
     pub fn possible_objects(&mut self) {
-        for line in &self.lines {
-            let tkl = &line.1;
-            let mut tkls: Vec<&Vec<Token>> = Vec::new();
-
-            if tkl.contains(&Token::ObjectDeclaration) {
-                tkls.push(tkl);
-                println!("{:?}", tkl);
+        for file in &self.files {
+            for lines in &file.lines {
+                if lines.1.contains(&Token::ObjectDeclaration) {
+                    println!("{} {:?} {:?}", lines.0, lines.1, file.filepath)
+                }
             }
         }
     }

@@ -1,39 +1,23 @@
 use core::panic;
+use std::collections::HashMap;
+use crate::structs::{FileData, Token, TokenisedFileData};
 
-#[derive(Debug, PartialEq)]
-pub enum Token {
-    ObjectDeclaration,
-    Identifier(String),
-    StringLiteral(String),
-    Number(String),
-    BlockOpen(char),
-    BlockClose,
-    Comma,
-    Semicolon,
-    Parenthesis(char),
-    Equals,
-    Other(char),
-    Eof,
-}
 
 pub struct Lexer {
     pos: usize,
     current_char: char,
     current_line: String,
-    lines: Vec<(i64, String, String)>,
+    files: Vec<FileData>,
 }
 
 
 impl Lexer {
-    pub fn new(lines: Vec<(i64, String, String)>) -> Self {
-        let first_line = lines[0].1.clone();
-        let c = first_line.chars().next();
-
+    pub fn new(files: Vec<FileData>) -> Self {
         Lexer {
             pos: 0,
-            current_char: c.expect("No initial char"),
-            current_line: first_line,
-            lines,
+            current_char: '\0',
+            current_line: String::new(),
+            files,
         }
     }
 
@@ -50,24 +34,59 @@ impl Lexer {
         } else {
             '\0'
         }
+    }
+
+    pub fn peek(&mut self) -> char {
+        if self.pos <= self.current_line.len() {
+            let pos = self.pos + 1;
+            self.current_char = self.current_line[pos..]
+                .chars()
+                .next()
+                .unwrap_or('\0');
+
+            self.current_char
+        } else {
+            '\0'
+        }
 
     }
 
-    pub fn lex(&mut self) -> Vec<(i64, Vec<Token>, String)>  {
-        let mut tokenised_lines: Vec<(i64, Vec<Token>, String)> = Vec::new();
+    pub fn lex(&mut self) -> Vec<TokenisedFileData>  {
+        let mut tokenised_files = Vec::new();
 
-        for line in self.lines.clone() {
-            self.current_line = line.1;
-            self.pos = 0;
-            self.current_char = self.current_line.chars().nth(self.pos).unwrap_or('\0');
+        for file in self.files.clone() {
+            let lines = file.lines.clone();
+            let mut new_lines = HashMap::new();
 
-            let line_tokens = self.handle_line();
-            // println!("line tokens: {:?}, {}", line_tokens, self.current_line);
+            for line in lines {
+                self.current_line = line.1;
+                self.pos = 0;
+                // println!("{}, {}, {}, {}", self.pos, self.current_char, self.current_line, self.current_line.len());
+                self.current_char = self.current_line.chars().nth(self.pos).unwrap_or('\0');
 
-            tokenised_lines.push((line.0, line_tokens, line.2));
+                let line_tokens = self.handle_line();
+                // println!("line tokens: {:?}, {}", line_tokens, self.current_line);
+
+                new_lines.insert(line.0, line_tokens);
+            }
+
+            let file_no = file.file_no;
+            let file_type = file.file_type.clone();
+            let filepath = file.filepath.clone();
+
+            let new_file = TokenisedFileData {
+                file_no,
+                file_type,
+                filepath,
+                lines: new_lines,
+                old_lines: file.lines,
+
+            };
+
+            tokenised_files.push(new_file);
         }
 
-        return tokenised_lines
+        return tokenised_files
 
     }
 
@@ -106,6 +125,8 @@ impl Lexer {
             '{' | '}' => self.handle_braces(),
 
             '"' | '\'' => self.handle_string(),
+
+            '/' | '#' | '-' => self.handle_comment(),
 
             '\0' => Token::Eof,
 
@@ -167,7 +188,12 @@ impl Lexer {
         if object_keywords.contains(&identifier.as_str()) {
             return Token::ObjectDeclaration
         } else {
-            return Token::Identifier(identifier);
+            match identifier.as_str() {
+                "pub" | "public" => Token::Publicity(true),
+                "private" => Token::Publicity(false),
+
+                _ => Token::Identifier(identifier),
+            }
         }
     }
 
@@ -183,7 +209,7 @@ impl Lexer {
     }
 
 
-    // could be possible issues with strings within strings: " \" hello world! \" "
+    // could be possible issues with strings within strings: \" \" hello world! \" \"
     // --- ADDRESS LATER BEFORE MOVING ONTO PARSER
     fn handle_string(&mut self) -> Token {
         let opening_string = self.current_char;
@@ -191,11 +217,16 @@ impl Lexer {
 
         let mut string = String::new();
         while self.current_char != opening_string {
+            if self.current_char == '\\' {
+                string.push(self.current_char);
+                self.advance();
+            }
+
             string.push(self.current_char);
             self.advance();
         }
 
-        self.advance(); // skip "
+        self.advance(); // skip \"
         Token::StringLiteral(string)
     }
 
@@ -215,5 +246,46 @@ impl Lexer {
 
         self.advance();
         return b
+    }
+
+    fn handle_comment(&mut self) -> Token {
+        let is_comment: bool = match self.current_char {
+            '/' => {
+                let next = self.peek();
+                if next == '/' || next == '*' || next == '=' {
+                    self.advance();
+                    true
+                } else {
+                    false
+                }
+            },
+            '#' => true,
+            '-' => {
+                if self.peek() == '-' {
+                    self.advance();
+                    true
+                } else {
+                    false
+                }
+            },
+            _ => false
+        };
+
+
+        if is_comment {
+            let mut comment = String::new();
+
+            while self.current_char != '\0' {
+                comment.push(self.current_char);
+                self.advance();
+            }
+
+            return Token::Comment(comment)
+        } else {
+            let c = self.current_char;
+            self.advance();
+
+            return Token::Other(c)
+        }
     }
 }
