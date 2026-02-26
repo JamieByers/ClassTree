@@ -24,6 +24,8 @@ fn main() {
 
     let _possible_objects = parser.possible_objects();
 
+    parser.parse();
+
 }
 
 fn get_all_files(json: serde_json::Value) -> Vec<FileData> {

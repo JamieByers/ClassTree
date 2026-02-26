@@ -1,6 +1,6 @@
 use core::panic;
 use std::collections::HashMap;
-use crate::structs::{FileData, Token, TokenisedFileData};
+use crate::structs::{FileData, Token, TokenisedFileData, Type};
 
 
 pub struct Lexer {
@@ -102,27 +102,27 @@ impl Lexer {
 
 
     pub fn next_token(&mut self) -> Token {
-        while self.current_char.is_whitespace() && self.current_char != '\0' {
+        while self.pos != 0 && self.current_char.is_whitespace() && self.current_char != '\0' {
             self.advance();
         }
 
 
         let token = match self.current_char {
-            'a'..='z' | 'A'..='Z' => {
-                let identifier = self.handle_indentifier();
-                let identifier_token = self.match_identifier(identifier);
-                // dont advance again in these functions
+            ' ' => self.handle_indent(),
 
-                identifier_token
-            },
+            'a'..='z' | 'A'..='Z' | '_' => self.handle_indentifier(),
 
             '0'..='9' => self.handle_number(),
 
-            ',' | ':' | ';' | '=' => self.handle_punctuation(),
+            ',' | ':' | ';' | '=' | '.' => self.handle_punctuation(),
 
             '(' | ')' => self.handle_parenthesis(),
 
+            '[' | ']' => self.handle_brackets(),
+
             '{' | '}' => self.handle_braces(),
+
+            '<' | '>' => self.handle_angles(),
 
             '"' | '\'' => self.handle_string(),
 
@@ -140,10 +140,30 @@ impl Lexer {
         return token
     }
 
+    fn handle_indent(&mut self) -> Token {
+        let mut indent_level = 0;
+
+        while self.current_char == ' ' {
+            indent_level += 1;
+            self.advance();
+        }
+
+        Token::Indent(indent_level)
+
+    }
+
     fn handle_punctuation(&mut self) -> Token {
         let c = match self.current_char {
+            '.' => Token::Period,
             ',' => Token::Comma,
-            ':' => Token::BlockOpen(':'),
+            ':' => {
+                if self.peek() == ':' {
+                    self.advance();
+                    Token::Connect
+                } else {
+                    Token::Colon
+                }
+            },
             ';' => Token::Semicolon,
             '=' => Token::Equals,
             _ => panic!("Cannot tokenise punctuation")
@@ -153,17 +173,20 @@ impl Lexer {
         return c
     }
 
-    fn handle_indentifier(&mut self) -> String{
+    fn handle_indentifier(&mut self) -> Token {
         let mut identifier: String = String::new();
         while !self.current_char.is_whitespace() && (self.current_char.is_alphabetic() || self.current_char == '_') {
             identifier.push(self.current_char);
             self.advance();
         }
 
-        identifier
+        self.match_identifier(identifier)
     }
 
-    fn match_identifier(&mut self, identifier: String) -> Token {
+    fn match_identifier(&mut self, id: String) -> Token {
+        let mut identifier = id.clone();
+        identifier.make_ascii_lowercase();
+
         let object_keywords: Vec<&str> = vec![
             "Class",
             "enum",
@@ -180,7 +203,6 @@ impl Lexer {
             "record",
             "struct",
             "table",
-            "trait",
             "type",
             "union",
         ];
@@ -188,11 +210,22 @@ impl Lexer {
         if object_keywords.contains(&identifier.as_str()) {
             return Token::ObjectDeclaration
         } else {
+
             match identifier.as_str() {
                 "pub" | "public" => Token::Publicity(true),
                 "private" => Token::Publicity(false),
+                "self" | "Self" => Token::SelfToken,
+                "def" | "fn" => Token::FunctionDeclaration,
+                "trait" => Token::Trait,
 
-                _ => Token::Identifier(identifier),
+                "string" | "str" => Token::Type(Type::String),
+                "integer" | "int" | "i16" | "i32" | "i64" | "i128" => Token::Type(Type::Integer),
+                "float" | "f8" | "f16" | "f32" | "f64" => Token::Type(Type::Float),
+                "bool" | "boolean" => Token::Type(Type::Float),
+                "char" => Token::Type(Type::Char),
+                "none" => Token::Type(Type::NoneType),
+
+                _ => Token::Identifier(id),
             }
         }
     }
@@ -230,6 +263,11 @@ impl Lexer {
         Token::StringLiteral(string)
     }
 
+    fn handle_brackets(&mut self) -> Token {
+        let bracket = self.current_char;
+        self.advance();
+        Token::Bracket(bracket)
+    }
 
     fn handle_parenthesis(&mut self) -> Token {
         let paren = self.current_char;
@@ -248,7 +286,15 @@ impl Lexer {
         return b
     }
 
+    fn handle_angles(&mut self) -> Token {
+        let angle = self.current_char;
+        self.advance();
+        Token::AngleBracket(angle)
+
+    }
+
     fn handle_comment(&mut self) -> Token {
+        let mut arrow_flag = false;
         let is_comment: bool = match self.current_char {
             '/' => {
                 let next = self.peek();
@@ -264,6 +310,10 @@ impl Lexer {
                 if self.peek() == '-' {
                     self.advance();
                     true
+                } else if self.peek() == '>' {
+                    self.advance();
+                    arrow_flag = true;
+                    false
                 } else {
                     false
                 }
@@ -281,6 +331,9 @@ impl Lexer {
             }
 
             return Token::Comment(comment)
+        } else if arrow_flag {
+            self.advance();
+            return Token::Arrow
         } else {
             let c = self.current_char;
             self.advance();
