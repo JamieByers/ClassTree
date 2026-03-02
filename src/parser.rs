@@ -12,6 +12,8 @@ pub struct Parser {
     current_line: Vec<Token>,
     current_file: TokenisedFileData,
     current_object: String,
+
+    objects: HashMap<String, Object>
 }
 
 impl Parser {
@@ -30,6 +32,8 @@ impl Parser {
             current_line: Vec::new(),
             current_file: files[0].clone(),
             current_object: String::new(),
+
+            objects: HashMap::new(),
         }
     }
 
@@ -43,13 +47,12 @@ impl Parser {
             let line = self.peek_line();
             if line.is_empty() {
                 next_token = Token::Eof;
-                Token::Eof
+                next_token
             } else {
                 next_token = line[0].clone();
                 next_token
             }
         }
-
     }
 
 
@@ -59,7 +62,6 @@ impl Parser {
             self.current_token = self.current_line[self.pos as usize].clone();
             self.current_token.clone()
         } else {
-            // println!("CHANGING LINE FROM {:?}", self.current_line);
             let line = self.advance_line();
             if line.is_empty() {
                 self.current_token = Token::Eof;
@@ -109,11 +111,9 @@ impl Parser {
 
     fn advance_line(&mut self) -> Vec<Token> {
         while (self.current_line_no as usize) < self.current_file.lines.len() {
-            println!("CHANGING LINE FROM {:?}", self.current_line);
             self.pos = 0;
             self.current_line_no += 1;
             self.current_line = self.current_file.lines[&self.current_line_no].to_vec();
-            // println!("CHANGING LINE ---- NEW LINE : {:?}", self.current_line);
             if !self.current_line.is_empty() {
                 self.current_token = self.current_line[0].clone();
                 return self.current_line.clone();
@@ -136,9 +136,9 @@ impl Parser {
 
     pub fn parse(&mut self) {
         self.display_file_as_tokens();
-        println!("\n");
 
-        let possible_objects = self.possible_objects();
+        let mut possible_objects: Vec<(String, i64)> = self.possible_objects();
+        possible_objects.sort_by_key(|k| k.1);
 
         let mut nodes: Vec<ASTNode> = Vec::new();
 
@@ -159,27 +159,23 @@ impl Parser {
             self.pos = 0;
             self.current_token = self.current_line[self.pos as usize].clone();
 
-            while self.current_token != Token::BlockClose && self.current_token != Token::Eof {
-                // println!("RUNNING PARSE TOKEN FROM WHILE LOOP IN PARSE");
-                let node = self.parse_token();
-                if node == ASTNode::Eof {
-                    break;
-                }
-                nodes.push(node);
-            }
+
+            let node = self.parse_token();
+            nodes.push(node);
 
         }
 
-        println!("\n \n");
         for n in nodes.clone() {
             println!("NODE : {:?}", n);
         }
         println!("\n");
         println!("{:?}", nodes.clone());
+
+
+        self.status();
     }
 
     pub fn display_file_as_tokens(&self) {
-        // println!("Displaying file: {}\n", self.current_file.filepath);
 
         let mut items: Vec<(&i64, &Vec<Token>)> =
             self.current_file.lines.iter().collect();
@@ -203,7 +199,6 @@ impl Parser {
             for lines in &file.lines {
                 if lines.1.contains(&Token::ObjectDeclaration) {
                     line_numbers_of_possible_objects.push((file.filepath.clone(), *lines.0));
-                    // println!("{} {:?} {:?}", lines.0, lines.1, file.filepath)
                 }
             }
         }
@@ -211,12 +206,11 @@ impl Parser {
         return line_numbers_of_possible_objects
     }
 
-    // class Parent:
-    //     def __init__(self) -> None:
-    //         self.parent = None
+    // class Parent:                            parse_token() ( class ) -> ObjectDeclaration |-> handle_block()
+    //     def __init__(self) -> None:          parse_token() (def) ->  Function
+    //         self.parent = None               parse_token() -> skip ...
 
     fn parse_token(&mut self) -> ASTNode {
-        // println!("RUNNING PARSE TOKEN {:?} {:?}", self.current_token, self.current_line);
         match self.current_token {
             Token::ObjectDeclaration => self.handle_object(false),
             Token::Publicity(public) => self.handle_public_object(public),
@@ -233,7 +227,7 @@ impl Parser {
 
             // _ => panic!("Cant parse following token : {:?}, at line {}: {:?}", self.current_token, self.current_line_no, self.current_line)
             _ => {
-                println!("Skipping unrecognised token: {:?}", self.current_token);
+                // println!("Skipping unrecognised token: {:?}", self.current_token);
                 self.advance();
                 ASTNode::None
             }
@@ -381,7 +375,7 @@ impl Parser {
         self.advance(); // skip ObjectDeclaration
 
         let id = self.current_token.clone(); // ObjectDeclaration -> Identifier
-                                             //
+
         let identifier = match id {
             Token::Identifier(id) => id,
             _ => panic!("Expected identifier")
@@ -394,23 +388,42 @@ impl Parser {
 
         let should_be_block_open = self.current_token.clone();
 
-        let mut block = Vec::new();
-        if should_be_block_open == Token::BlockOpen('{') && should_be_block_open == Token::Colon {
-            block = self.handle_block();
-            // println!("block {:?}", block);
+        if should_be_block_open == Token::BlockOpen('{') || should_be_block_open == Token::Colon {
+            let block = self.handle_block();
+
+            let mut variables: HashMap<String, Variable> = HashMap::new();
+            let mut functions: HashMap<String, Function> = HashMap::new();
+
+            for node in &block {
+                match node {
+                    ASTNode::Variable(variable) => {
+                        let identifier = variable.identifier.clone();
+                        variables.insert(identifier, variable.clone());
+                    },
+                    ASTNode::Function(function) => {
+                        let identifier = function.identifier.clone();
+                        functions.insert(identifier, function.clone());
+                    }
+                    _ => continue
+                }
+            }
+
+            let object = Object {
+                identifier: identifier.clone(),
+                block,
+                variables,
+                functions,
+                public,
+                parents,
+           };
+
+            self.objects.insert(identifier, object.clone());
+
+            ASTNode::Object(object)
+
         } else {
-            panic!("Panicked at line {:?}", self.current_line);
+            panic!("Panicked at line {:?}, {:?}", self.current_line, self.current_token);
         }
-
-        let object = Object {
-            identifier,
-            block,
-            variables: HashMap::new(),
-            public,
-            parent: None,
-       };
-
-        ASTNode::Object(object)
     }
 
     fn handle_block(&mut self) -> Vec<ASTNode> {
@@ -432,7 +445,8 @@ impl Parser {
                 self.advance(); // skip block open :
                 let mut block = Vec::new();
 
-                while self.current_line.is_empty() {
+                loop {
+                    if !self.current_line.is_empty() { break; }
                     self.advance_line();
                 }
 
@@ -589,5 +603,40 @@ impl Parser {
 
         ASTNode::Function(function)
 
+    }
+
+
+
+
+    // pub struct Parser {
+    //     files: Vec<TokenisedFileData>,
+    //     hash: HashMap<String, TokenisedFileData>,
+
+    //     pos: i64,
+    //     current_line_no: i64,
+    //     current_token: Token,
+    //     current_line: Vec<Token>,
+    //     current_file: TokenisedFileData,
+    //     current_object: String,
+
+    //     objects: HashMap<String, Object>
+    // }
+
+    pub fn status(&mut self) {
+        println!("\n--- STATUS ---\n");
+
+        println!("pos: {}", self.pos);
+        println!("current_line_no: {}", self.current_line_no);
+        println!("current_token: {:?}", self.current_token);
+        println!("current_line: {:?}", self.current_line);
+        println!("current_file: {:?}", self.current_file);
+        println!("current_object: {}", self.current_object);
+
+        println!("\nObjects: \n");
+        for object in self.objects.clone() {
+            println!("\tObject: {:?}", object);
+        }
+        println!("\n------------------------------------------------------------------");
+        println!("\n");
     }
 }

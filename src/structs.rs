@@ -49,9 +49,11 @@ pub struct Object {
     pub identifier: String,
     pub block: Vec<ASTNode>,
     pub public: bool,
-    pub variables: HashMap<String, ASTNode>,
 
-    pub parent: Option<Box<Object>>,
+    pub functions: HashMap<String, Function>,
+    pub variables: HashMap<String, Variable>,
+
+    pub parents: Vec<Parameter>
 }
 
 #[derive(Debug, Clone, PartialEq)]
